@@ -27,6 +27,11 @@ func (hs HandlerSetter) Handler(handler http.Handler) {
 	hs(handler)
 }
 
+// HandlerFunc wraps HandlerFunc to Handler
+func (hs HandlerSetter) HandlerFunc(hf func(http.ResponseWriter, *http.Request)) {
+	hs.Handler(http.HandlerFunc(hf))
+}
+
 // Filters returns a new HandlerSetter
 func (hs HandlerSetter) Filters(filters ...Filter) HandlerSetter {
 	return func(handler http.Handler, fs ...Filter) {
