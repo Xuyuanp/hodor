@@ -19,32 +19,23 @@ package hodor
 
 import "net/http"
 
-// HandlerSetter easy way to set Handler for a route.
-type HandlerSetter func(handler http.Handler, filters ...Filter)
-
-// Handler calls HandlerSetter function.
-func (hs HandlerSetter) Handler(handler http.Handler) {
-	hs(handler)
+// BuildRoute creates a route builder from router.
+func BuildRoute(router Router) Route {
+	return RouteFunc(router.AddRoute).Route()
 }
 
-// HandlerFunc wraps HandlerFunc to Handler
-func (hs HandlerSetter) HandlerFunc(hf func(http.ResponseWriter, *http.Request)) {
-	hs.Handler(http.HandlerFunc(hf))
-}
+// RouteFunc is a function type implemented Router interface.
+type RouteFunc func(method Method, pattern string, handler http.Handler, filters ...Filter)
 
-// Filters returns a new HandlerSetter
-func (hs HandlerSetter) Filters(filters ...Filter) HandlerSetter {
-	return func(handler http.Handler, fs ...Filter) {
-		hs(handler, append(filters, fs...)...)
+// Route returns a setter-chain to add a new route step-by-step.
+func (f RouteFunc) Route() Route {
+	return func(method Method) PatternSetter {
+		return func(pattern string) HandlerSetter {
+			return func(handler http.Handler, filters ...Filter) {
+				f(method, pattern, handler, filters...)
+			}
+		}
 	}
-}
-
-// PatternSetter easy way to set Path for a route.
-type PatternSetter func(pattern string) HandlerSetter
-
-// Pattern calls Pattern function.
-func (ps PatternSetter) Pattern(pattern string) HandlerSetter {
-	return ps(pattern)
 }
 
 // Route easy way to set Method for a route.
@@ -112,6 +103,34 @@ func (ms Route) Group(root string) Grouper {
 					Handler(handler)
 			}).Route())
 	}
+}
+
+// HandlerSetter easy way to set Handler for a route.
+type HandlerSetter func(handler http.Handler, filters ...Filter)
+
+// Handler calls HandlerSetter function.
+func (hs HandlerSetter) Handler(handler http.Handler) {
+	hs(handler)
+}
+
+// HandlerFunc wraps HandlerFunc to Handler
+func (hs HandlerSetter) HandlerFunc(hf func(http.ResponseWriter, *http.Request)) {
+	hs.Handler(http.HandlerFunc(hf))
+}
+
+// Filters returns a new HandlerSetter
+func (hs HandlerSetter) Filters(filters ...Filter) HandlerSetter {
+	return func(handler http.Handler, fs ...Filter) {
+		hs(handler, append(filters, fs...)...)
+	}
+}
+
+// PatternSetter easy way to set Path for a route.
+type PatternSetter func(pattern string) HandlerSetter
+
+// Pattern calls Pattern function.
+func (ps PatternSetter) Pattern(pattern string) HandlerSetter {
+	return ps(pattern)
 }
 
 // Grouper is to add routes grouply.
