@@ -57,3 +57,29 @@ type Router interface {
 	http.Handler
 	AddRoute(method Method, pattern string, handler http.Handler, filters ...Filter)
 }
+
+// MethodHandler creates a new Handler which only accepts specific method.
+func MethodHandler(method Method, handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == method.String() {
+			handler.ServeHTTP(w, r)
+			return
+		}
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+	})
+}
+
+type serverRouter struct {
+	*http.ServeMux
+}
+
+func (sr *serverRouter) AddRoute(method Method, pattern string, handler http.Handler, filters ...Filter) {
+	sr.Handle(pattern, MergeFilters(filters...).Do(MethodHandler(method, handler)))
+}
+
+// WithServer creates new Router with ServeMux in http package.
+func WithServer(srv *http.ServeMux) Router {
+	return &serverRouter{
+		ServeMux: srv,
+	}
+}
