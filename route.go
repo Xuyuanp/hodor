@@ -125,6 +125,11 @@ func (hs HandlerSetter) Filters(filters ...Filter) HandlerSetter {
 	}
 }
 
+// FilterFunc is a sugar method for Filters
+func (hs HandlerSetter) FilterFunc(f func(http.Handler) http.Handler) HandlerSetter {
+	return hs.Filters(FilterFunc(f))
+}
+
 // PatternSetter easy way to set Path for a route.
 type PatternSetter func(pattern string) HandlerSetter
 
@@ -146,4 +151,9 @@ func (g Grouper) Filters(filters ...Filter) Grouper {
 	return func(fn func(Route), fs ...Filter) {
 		g(fn, append(filters, fs...)...)
 	}
+}
+
+// FilterFunc is a sugar method for Filters
+func (g Grouper) FilterFunc(f func(http.Handler) http.Handler) Grouper {
+	return g.Filters(FilterFunc(f))
 }
