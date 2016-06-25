@@ -18,8 +18,8 @@
 package hodor
 
 import (
-	"log"
 	"net/http"
+	"runtime"
 	"time"
 )
 
@@ -51,8 +51,13 @@ func MergeFilters(filters ...Filter) Filter {
 		})
 }
 
+// Logger interface
+type Logger interface {
+	Printf(string, ...interface{})
+}
+
 // LogFilter new filter
-func LogFilter(l *log.Logger) FilterFunc {
+func LogFilter(l Logger) FilterFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(
 			func(w http.ResponseWriter, r *http.Request) {
@@ -61,6 +66,25 @@ func LogFilter(l *log.Logger) FilterFunc {
 				next.ServeHTTP(w, r)
 				status := w.(ResponseWriter).Status()
 				l.Printf("%d %s %s", status, http.StatusText(status), time.Since(start))
+			})
+	}
+}
+
+func RecoveryFilter(l Logger) FilterFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(
+			func(w http.ResponseWriter, r *http.Request) {
+				defer func() {
+					if err := recover(); err != nil {
+						trace := make([]byte, 1<<16)
+						n := runtime.Stack(trace, true)
+						stack := trace[:n]
+						l.Printf("PANIC: %v\n%s", err, stack)
+						http.Error(w, http.StatusText(http.StatusInternalServerError),
+							http.StatusInternalServerError)
+					}
+				}()
+				next.ServeHTTP(w, r)
 			})
 	}
 }
