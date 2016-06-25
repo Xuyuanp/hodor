@@ -61,8 +61,19 @@ func LogFilter(l Logger) FilterFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(
 			func(w http.ResponseWriter, r *http.Request) {
+				addr := r.Header.Get("X-Real-IP")
+				if addr == "" {
+					addr = r.Header.Get("X-Forwarded-For")
+					if addr == "" {
+						addr = r.RemoteAddr
+					}
+				}
+				path := r.URL.Path
+				if r.URL.RawQuery != "" {
+					path += "?" + r.URL.RawQuery
+				}
 				start := time.Now()
-				l.Printf("%s %s", r.Method, r.RemoteAddr)
+				l.Printf("%s %s %s", r.Method, path, addr)
 				next.ServeHTTP(w, r)
 				status := w.(ResponseWriter).Status()
 				l.Printf("%d %s %s", status, http.StatusText(status), time.Since(start))
