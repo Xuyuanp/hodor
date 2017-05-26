@@ -58,28 +58,43 @@ type Router interface {
 	AddRoute(method Method, pattern string, handler http.Handler, filters ...Filter)
 }
 
-// MethodHandler creates a new Handler which only accepts specific method.
-func MethodHandler(method Method, handler http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == method.String() {
-			handler.ServeHTTP(w, r)
-			return
-		}
-		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
-	})
+// NodeRouter struct
+type NodeRouter struct {
+	root       *node
+	Handler404 http.Handler
+	Handler405 http.Handler
 }
 
-type serverRouter struct {
-	*http.ServeMux
-}
-
-func (sr *serverRouter) AddRoute(method Method, pattern string, handler http.Handler, filters ...Filter) {
-	sr.Handle(pattern, MergeFilters(filters...).Do(MethodHandler(method, handler)))
-}
-
-// WithServer creates new Router with ServeMux in http package.
-func WithServer(srv *http.ServeMux) Router {
-	return &serverRouter{
-		ServeMux: srv,
+func errHandler(status int) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, http.StatusText(status), status)
 	}
+}
+
+// NewRouter creates a new router
+func NewRouter() *NodeRouter {
+	return &NodeRouter{
+		root:       newNode(nil, ""),
+		Handler404: errHandler(http.StatusNotFound),
+		Handler405: errHandler(http.StatusMethodNotAllowed),
+	}
+}
+
+func (nr *NodeRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h, err := nr.root.match(Method(r.Method), r.URL.Path)
+	switch err {
+	case errNotFound:
+		nr.Handler404.ServeHTTP(w, r)
+	case errMethodNotAllowed:
+		nr.Handler405.ServeHTTP(w, r)
+	case nil:
+		h.ServeHTTP(w, r)
+	default:
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// AddRoute implements Router interface
+func (nr *NodeRouter) AddRoute(method Method, pattern string, handler http.Handler, filters ...Filter) {
+	nr.root.addRoute(method, pattern, handler, filters...)
 }

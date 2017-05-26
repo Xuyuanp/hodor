@@ -81,6 +81,7 @@ func LogFilter(l Logger) FilterFunc {
 	}
 }
 
+// RecoveryFilter new filter
 func RecoveryFilter(l Logger) FilterFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(
