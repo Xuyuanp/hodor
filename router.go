@@ -17,7 +17,10 @@
 
 package hodor
 
-import "net/http"
+import (
+	"context"
+	"net/http"
+)
 
 // Method is HTTP method.
 type Method string
@@ -81,13 +84,17 @@ func NewRouter() *NodeRouter {
 }
 
 func (nr *NodeRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	h, err := nr.root.match(Method(r.Method), r.URL.Path)
+	p, h, err := nr.root.match(background, Method(r.Method), r.URL.Path)
 	switch err {
 	case errNotFound:
 		nr.Handler404.ServeHTTP(w, r)
 	case errMethodNotAllowed:
 		nr.Handler405.ServeHTTP(w, r)
 	case nil:
+		if p != background {
+			ctx := context.WithValue(r.Context(), paramsKey, p)
+			r = r.WithContext(ctx)
+		}
 		h.ServeHTTP(w, r)
 	default:
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -96,5 +103,5 @@ func (nr *NodeRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // AddRoute implements Router interface
 func (nr *NodeRouter) AddRoute(method Method, pattern string, handler http.Handler, filters ...Filter) {
-	nr.root.addRoute(method, pattern, handler, filters...)
+	nr.root.addRoute(method, pattern, MergeFilters(filters...).Do(handler))
 }

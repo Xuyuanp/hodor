@@ -18,15 +18,65 @@
 package hodor
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 )
 
+type paramsKeyType string
+
+const paramsKey paramsKeyType = "HodorParam"
+
+func ParamOfReq(r *http.Request, name string) (string, bool) {
+	return ParamOfCtx(r.Context(), name)
+}
+
+func ParamOfCtx(ctx context.Context, name string) (string, bool) {
+	if p, ok := ctx.Value(paramsKey).(Params); ok {
+		return p.Get(name)
+	}
+	return "", false
+}
+
+type Params interface {
+	Get(string) (string, bool)
+}
+
+type emptyParams struct{}
+
+func (p *emptyParams) Get(_ string) (string, bool) {
+	return "", false
+}
+
+var background = new(emptyParams)
+
+type valueParam struct {
+	parent Params
+	name   string
+	value  string
+}
+
+func (p *valueParam) Get(name string) (string, bool) {
+	if p.name == name {
+		return p.value, true
+	}
+	return p.parent.Get(name)
+}
+
+func withValue(p Params, name, value string) Params {
+	return &valueParam{
+		parent: p,
+		name:   name,
+		value:  value,
+	}
+}
+
 type node struct {
 	parent   *node
 	named    bool
+	empty    bool
 	pattern  string
 	name     string
 	handlers map[Method]http.Handler
@@ -38,19 +88,19 @@ func newNode(parent *node, pattern string) *node {
 		parent:   parent,
 		pattern:  pattern,
 		named:    false,
+		empty:    true,
 		handlers: map[Method]http.Handler{},
 		children: map[byte]*node{},
 	}
 }
 
-func (n *node) addRoute(method Method, pattern string, handler http.Handler, filters ...Filter) {
-	if !n.named && n.pattern == "" {
-		n.pattern = pattern
-		n.handle(method, handler, filters...)
+func (n *node) addRoute(method Method, pattern string, handler http.Handler) {
+	if n.empty {
+		n.init(method, pattern, handler)
 		return
 	}
-	if strings.HasPrefix(pattern, ":") {
-		n.addNamedRoute(method, pattern, handler, filters...)
+	if n.named {
+		n.addNamedRoute(method, pattern, handler)
 		return
 	}
 	i := longestPrefix(n.pattern, pattern)
@@ -58,24 +108,39 @@ func (n *node) addRoute(method Method, pattern string, handler http.Handler, fil
 		n.splitAt(i)
 	}
 	if i == len(pattern) {
-		n.handle(method, handler, filters...)
+		n.handle(method, handler)
 		return
 	}
-	n.getChildMust(pattern[i]).addRoute(method, pattern[i:], handler, filters...)
+	n.getChildMust(pattern[i]).addRoute(method, pattern[i:], handler)
 }
 
-func (n *node) addNamedRoute(method Method, pattern string, handler http.Handler, filters ...Filter) {
-	n.named = true
+func (n *node) init(method Method, pattern string, handler http.Handler) {
+	n.empty = false
+	i := longestPrefix(pattern, pattern)
+	if i == 0 {
+		n.addNamedRoute(method, pattern, handler)
+		return
+	}
+	if i == len(pattern) {
+		n.pattern = pattern
+		n.handle(method, handler)
+		return
+	}
+	n.pattern = pattern[:i]
+	n.getChildMust(pattern[i]).addRoute(method, pattern[i:], handler)
+}
+
+func (n *node) addNamedRoute(method Method, pattern string, handler http.Handler) {
 	index := strings.Index(pattern, "/")
 	var name string
 	if index == -1 {
 		name = pattern[1:]
 		n.name = name
-		n.handle(method, handler, filters...)
+		n.handle(method, handler)
 	} else {
 		name = pattern[1:index]
 		n.name = name
-		n.getChildMust(pattern[index]).addRoute(method, pattern[index:], handler, filters...)
+		n.getChildMust(pattern[index]).addRoute(method, pattern[index:], handler)
 	}
 
 }
@@ -88,17 +153,19 @@ func longestPrefix(p1, p2 string) int {
 	return i
 }
 
-func (n *node) handle(method Method, handler http.Handler, filters ...Filter) {
+func (n *node) handle(method Method, handler http.Handler) {
 	if _, ok := n.handlers[method]; ok {
-		panic("duplicated handler for same method")
+		panic("duplicated handlers for same method")
 	}
-	n.handlers[method] = MergeFilters(filters...).Do(handler)
+	n.handlers[method] = handler
 }
 
 func (n *node) splitAt(index int) {
 	child := newNode(n, n.pattern[index:])
 	child.handlers = n.handlers
 	child.children = n.children
+	child.named = false
+	child.empty = false
 
 	n.handlers = map[Method]http.Handler{}
 	n.children = map[byte]*node{n.pattern[index]: child}
@@ -122,49 +189,53 @@ var (
 	errMethodNotAllowed = errors.New("Method Not Allowed")
 )
 
-func (n *node) match(method Method, pattern string) (http.Handler, error) {
+func (n *node) match(p Params, method Method, pattern string) (Params, http.Handler, error) {
 	if n.named {
-		return n.matchNamed(method, pattern)
+		return n.matchNamed(p, method, pattern)
 	}
 	i := longestPrefix(n.pattern, pattern)
 	if i < len(n.pattern) {
-		return nil, errNotFound
+		return p, nil, errNotFound
 	}
 	if i < len(pattern) {
 		if child, ok := n.children[pattern[i]]; ok {
-			return child.match(method, pattern[i:])
+			if p, h, err := child.match(p, method, pattern[i:]); err == nil || err == errMethodNotAllowed {
+				return p, h, err
+			}
+			if child, ok := n.children[':']; ok {
+				return child.match(p, method, pattern[i:])
+			}
+			return p, nil, errNotFound
 		}
 		if child, ok := n.children[':']; ok {
-			return child.match(method, pattern[i:])
+			return child.match(p, method, pattern[i:])
 		}
-		return nil, errNotFound
+		return p, nil, errNotFound
 	}
-	return n.handleMethod(method)
+	return n.handleMethod(p, method)
 }
 
-func (n *node) matchNamed(method Method, pattern string) (http.Handler, error) {
+func (n *node) matchNamed(p Params, method Method, pattern string) (Params, http.Handler, error) {
 	index := strings.Index(pattern, "/")
 	if index == -1 {
-		// value := pattern
-		// fmt.Println(value)
-		return n.handleMethod(method)
+		value := pattern
+		return n.handleMethod(withValue(p, n.name, value), method)
 	}
-	// value := pattern[:index]
-	// fmt.Println(value)
+	value := pattern[:index]
 	if child, ok := n.children['/']; ok {
-		return child.match(method, pattern[index:])
+		return child.match(withValue(p, n.name, value), method, pattern[index:])
 	}
-	return nil, errNotFound
+	return p, nil, errNotFound
 }
 
-func (n *node) handleMethod(method Method) (http.Handler, error) {
+func (n *node) handleMethod(p Params, method Method) (Params, http.Handler, error) {
 	if len(n.handlers) == 0 {
-		return nil, errNotFound
+		return p, nil, errNotFound
 	}
 	if h, ok := n.handlers[method]; ok {
-		return h, nil
+		return p, h, nil
 	}
-	return nil, errMethodNotAllowed
+	return p, nil, errMethodNotAllowed
 }
 
 func (n *node) printTree(prefix string) {

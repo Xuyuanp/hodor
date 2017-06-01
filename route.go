@@ -105,6 +105,14 @@ func (ms Route) Group(root string) Grouper {
 	}
 }
 
+// PatternSetter easy way to set Path for a route.
+type PatternSetter func(pattern string) HandlerSetter
+
+// Pattern calls Pattern function.
+func (ps PatternSetter) Pattern(pattern string) HandlerSetter {
+	return ps(pattern)
+}
+
 // HandlerSetter easy way to set Handler for a route.
 type HandlerSetter func(handler http.Handler, filters ...Filter)
 
@@ -128,14 +136,6 @@ func (hs HandlerSetter) Filters(filters ...Filter) HandlerSetter {
 // FilterFunc is a sugar method for Filters
 func (hs HandlerSetter) FilterFunc(f func(http.Handler) http.Handler) HandlerSetter {
 	return hs.Filters(FilterFunc(f))
-}
-
-// PatternSetter easy way to set Path for a route.
-type PatternSetter func(pattern string) HandlerSetter
-
-// Pattern calls Pattern function.
-func (ps PatternSetter) Pattern(pattern string) HandlerSetter {
-	return ps(pattern)
 }
 
 // Grouper is to add routes grouply.
