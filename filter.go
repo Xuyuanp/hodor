@@ -56,6 +56,14 @@ type Logger interface {
 	Printf(string, ...interface{})
 }
 
+// LogFunc is a function implemented Logger interface
+type LogFunc func(string, ...interface{})
+
+// Printf func
+func (f LogFunc) Printf(format string, args ...interface{}) {
+	f(format, args...)
+}
+
 // LogFilter new filter
 func LogFilter(l Logger) FilterFunc {
 	return func(next http.Handler) http.Handler {
