@@ -17,7 +17,11 @@
 
 package hodor
 
-import "net/http"
+import (
+	"log"
+	"net/http"
+	"os"
+)
 
 // Hodor struct
 type Hodor struct {
@@ -31,6 +35,17 @@ func NewHodor(router Router) *Hodor {
 		router: router,
 		filter: emptyFilter,
 	}
+	return h
+}
+
+// Default return a default Hodor with log and recover filters
+func Default() *Hodor {
+	h := NewHodor(NewRouter())
+	logger := log.New(os.Stdout, "[Hodor] ", log.LstdFlags)
+	h.AddFilters(
+		LogFilter(logger),
+		RecoveryFilter(logger),
+	)
 	return h
 }
 
