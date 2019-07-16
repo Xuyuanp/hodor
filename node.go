@@ -29,11 +29,11 @@ type paramsKeyType string
 
 const paramsKey paramsKeyType = "HodorParam"
 
-func ParamOfReq(r *http.Request, name string) (string, bool) {
-	return ParamOfCtx(r.Context(), name)
+func ParamsOfReq(r *http.Request, name string) (string, bool) {
+	return ParamsOfCtx(r.Context(), name)
 }
 
-func ParamOfCtx(ctx context.Context, name string) (string, bool) {
+func ParamsOfCtx(ctx context.Context, name string) (string, bool) {
 	if p, ok := ctx.Value(paramsKey).(Params); ok {
 		return p.Get(name)
 	}
